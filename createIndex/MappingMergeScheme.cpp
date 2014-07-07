@@ -135,6 +135,7 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
     // How many bases have we mapped or not mapped
     size_t mappedBases = 0;
     size_t unmappedBases = 0;
+    size_t nonReversibleMappings = 0;
     
     // Grab the contig as a string
     std::string contig = index.displayContig(queryContig);
@@ -143,85 +144,131 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
     Log::info() << threadName << " mapping " << contig.size() << 
         " bases via " << BitVectorIterator(includedPositions).rank(
         includedPositions.getSize()) << " bottom-level positions" << std::endl;
+	
+    // Make an iterator for ranges, so we can query it.
+    BitVectorIterator rangeIterator(rangeVector);
+    
+    // And one for the mask, if needed
+    BitVectorIterator* maskIterator = (mask == NULL) ? NULL : 
+        new BitVectorIterator(&includedPositions);
     
     // Map it on the right
-    std::vector<int64_t> rightMappings = index.map(rangeVector, contig, 
-        &includedPositions, minContext);
+    std::vector<std::pair<int64_t,std::pair<bool,bool>>> rightMappings = index.map(rangeVector, contig, 
+        genome, &includedPositions, minContext);
     
     // Map it on the left
-    std::vector<int64_t> leftMappings = index.map(rangeVector, 
-        reverseComplement(contig), &includedPositions, minContext);
+    std::vector<std::pair<int64_t,std::pair<bool,bool>>> leftMappings = index.map(rangeVector, 
+        reverseComplement(contig), genome, &includedPositions, minContext);
+
     
     // Flip the left mappings back into the original order. They should stay as
     // other-side ranges.
     std::reverse(leftMappings.begin(), leftMappings.end());
-      
+    
     for(size_t i = 0; i < leftMappings.size(); i++) {
         // For each position, look at the mappings.
-        
-        if(leftMappings[i] != -1) {
+	
+	if(leftMappings[i].second.first) {
             // We have a left mapping. Grab its base.
-            auto leftBase = rangeBases[leftMappings[i]];
+            auto leftBase = rangeBases[leftMappings[i].first];
             
-            if(rightMappings[i] != -1) {
+            if(rightMappings[i].second.first) {
                 // We have a right mapping. Grab its base too.
-                auto rightBase = rangeBases[rightMappings[i]];
+                auto rightBase = rangeBases[rightMappings[i].first];
                 
                 // Compare the position (contig, base) pairs (first) and the
                 // orientation flags (second)
                 if(leftBase.first == rightBase.first && 
                     leftBase.second != rightBase.second) {
-                    
-                    // These are opposite faces of the same base.
-                    
-                    // Produce a merge between the base we're looking at on the
-                    // forward strand of this contig, and the canonical location
-                    // and strand in the merged genome, accounting for
-                    // orientation. TODO: Just set everything up on
-                    // TextPositions or something.
-                    
-                    // These positions being sent are 1-based, so we have to
-                    // correct i to i + 1 to get the offset of that base in the
-                    // query string. Orientation is backwards to start with from
-                    // our backwards right-semantics, so flip it.
-                    generateMerge(queryContig, i + 1, leftBase.first.first, 
-                        leftBase.first.second, !leftBase.second); 
-                        
-                    mappedBases++;                   
-                } else {
-                    // Didn't map this one
-                    unmappedBases++;
-                }
-            } else {
-                // Left mapped and right didn't.
-                
-                // Do the same thing, taking the left base and merging into it.
-                // Orientation is backwards to start with from our backwards
-                // right-semantics, so flip it.
-                generateMerge(queryContig, i + 1, leftBase.first.first, 
-                        leftBase.first.second, !leftBase.second);  
-                        
-                mappedBases++;
-            }
-        } else if(rightMappings[i] != -1) {
-            // Right mapped and left didn't.
-            
-            // We have a right mapping. Grab its base too.
-            auto rightBase = rangeBases[rightMappings[i]];
-            
-            // Merge with the same contig and base. Leave the orientation alone
-            // (since it's backwards to start with).
-            generateMerge(queryContig, i + 1, rightBase.first.first, 
-                        rightBase.first.second, rightBase.second); 
-            
-            mappedBases++; 
-        } else {
+		    // These are opposite faces of the same base.
+		  
+		    if(leftMappings[i].second.second || rightMappings[i].second.second) {
+		      // Nothing else maps to our target base
+		      generateMerge(queryContig, i + 1, leftBase.first.first, 
+                        leftBase.first.second, !leftBase.second);
+		      
+		    } else {
+			// Other positions in the query genome map to our target base
+			// Invoke method to handle multiple query bases
+		      
+			//ie we won't map back at all
+
+		    }
+		  
+		} else {
+		  
+		    // We have a multimap with different target sides. We
+		    // want to pass this to the multimap handling procedure
+		    // below
+		  
+		    if(leftMappings[i].second.second || rightMappings[i].second.second) {
+			//TODO segergate i
+			//TODO segregate left and right targets
+		    } else {
+			unmappedBases++;
+				      
+		    }
+		  
+		}
+		
+	    } else {
+		    
+		    //We have a left map only
+	      
+		    if(leftMappings[i].second.second) {
+			// Nothing else maps to our target base
+			generateMerge(queryContig, i + 1, leftBase.first.first, 
+			    leftBase.first.second, !leftBase.second);
+		      
+		    } else {
+			// Other positions in the query genome map to our target base
+			// Invoke method to handle multiple query bases
+		      
+		    }	      
+	    }
+	    
+        } else if(rightMappings[i].second.first) {
+	    // We have a right mapping only. Grab its base.
+	    auto rightBase = rangeBases[rightMappings[i].first];
+	    
+		 if(leftMappings[i].second.second) {
+		    // Nothing else maps to our target base
+		    generateMerge(queryContig, i + 1, leftBase.first.first, 
+                    leftBase.first.second, !leftBase.second);
+		      
+		 } else {
+		    // Other positions in the query genome map to our target base
+		    // Invoke method to handle multiple query bases
+		      
+		 }
+	  
+	} else if(leftMappings[i].second.second || rightMappings[i].second.second) {
+	    // We have a multimapping to some set of bases where these
+	    // same bases map back only to position i. Non-unique query
+	    // mappings will occur in the other direction
+	  
+	    //TODO: segregate i
+	  
+	    if(leftMappings[i].second.second) {
+		//TODO: segregate all left targets of i
+	      
+	    }
+	      
+	    if(rightMappings[i].second.second) {
+		//TODO: segergate all right targets of i
+	    }
+	  
+	    //TODO: do we need to handle sorting multimapping types at this level?
+	    //This is a math question!
+	  
+	  
+	} else {
+	  
             // Didn't map this one
             unmappedBases++;
         }
         
     }
-    
     // Close the queue to say we're done.
     auto lock = queue->lock();
     queue->close(lock);
@@ -229,7 +276,13 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
     // Report that we're done.
     Log::info() << threadName << " finished (" << mappedBases << "|" << 
         unmappedBases << ")" << std::endl;
+	
 }
+
+
+
+
+
 
 
 

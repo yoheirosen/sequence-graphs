@@ -268,16 +268,16 @@ public:
      * Returns a vector of one-based range numbers for left-mapping each base,
      * or -1 if the base did not map to a range.
      */
-    std::vector<int64_t> map(const BitVector& ranges,
-        const std::string& query, const BitVector* mask, int minContext = 0, 
+    std::vector<std::pair<int64_t,std::pair<bool,bool>>> map(const BitVector& ranges,
+        const std::string& query, size_t queryGenome, const BitVector* mask, int minContext = 0, 
         int start = 0, int length = -1) const;
         
     /**
      * RIGHT-map to ranges using contexts from a specific genome, or all genomes
      * if genome is -1. Same semantics as the function above.
      */
-    std::vector<int64_t> map(const BitVector& ranges,
-        const std::string& query, int64_t genome = -1, int minContext = 0, 
+    std::vector<std::pair<int64_t,std::pair<bool,bool>>> map(const BitVector& ranges,
+        const std::string& query, size_t queryGenome, int64_t genome = -1, int minContext = 0, 
         int start = 0, int length = -1) const;
         
     /***************************************************************************

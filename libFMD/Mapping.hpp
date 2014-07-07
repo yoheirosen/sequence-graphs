@@ -15,7 +15,7 @@ struct Mapping
 {
 public:
     Mapping();
-    Mapping(TextPosition location, bool is_mapped=true);
+    Mapping(TextPosition location, bool is_mapped, bool is_multimapped);
     
     /**
      * Provide equality comparison for testing.
@@ -25,6 +25,9 @@ public:
     // Holds (text, offset)
     TextPosition location;
     bool is_mapped;
+    
+    //Flags to pass location and identity of multimappings
+    bool is_multimapped
 };
 
 /**

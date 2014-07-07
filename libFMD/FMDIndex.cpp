@@ -409,7 +409,7 @@ FMDPosition FMDIndex::extend(FMDPosition range, char c, bool backward) const {
 
     // We have an array of FMDPositions, one per base, that we will fill in by a
     // tiny dynamic programming.
-    FMDPosition answers[NUM_BASES];
+    FMDPosition answers[NUM_/*BASES*/];
 
     for(size_t base = 0; base < NUM_BASES; base++) {
         // Go through the bases in arbitrary order.
@@ -418,7 +418,8 @@ FMDPosition FMDIndex::extend(FMDPosition range, char c, bool backward) const {
             BASES[base] << ")" << std::endl;
 
         // Count up the number of characters < this base.
-        int64_t start = bwt.getPC(c);
+	// This should be bwt.getPC(BASES[base]);
+        int64_t start = bwt.getPC(BASES[base]);
 
         Log::trace() << "\t\tstart = " << start << std::endl;
 
@@ -614,7 +615,7 @@ std::vector<Mapping> FMDIndex::map(const std::string& query,
         length = query.length() - start;
     }
 
-    // Make an itarator for the mask, if needed, so we can query it.
+    // Make an iterator for the mask, if needed, so we can query it.
     BitVectorIterator* maskIterator = (mask == NULL) ? NULL : 
         new BitVectorIterator(*mask);
         
@@ -693,7 +694,7 @@ std::vector<Mapping> FMDIndex::map(const std::string& query,
                 (location.characters - 1));
 
             // Add a Mapping for this mapped base.
-            mappings.push_back(Mapping(textPosition));
+            mappings.push_back(Mapping(textPosition, true, false));
 
             // We definitely have a non-empty FMDPosition to continue from
 
@@ -728,9 +729,19 @@ std::vector<Mapping> FMDIndex::map(const std::string& query,
                 // again. If it was multimapped before, it had as much left
                 // context as it could take without running out of string or
                 // getting no results.
+	      
+		if(location.is_multimap && location.characters >= minContext) {
+		  
+		  // It multimapped. Add a multimapped Mapping, and pass on set of
+		  // alternate targets.
+		  mappings.push_back(Mapping(textPosition, false, true));
+		  
+		} else {
 
-                // It didn't map. Add an empty/unmapped Mapping.
-                mappings.push_back(Mapping());
+		  // It didn't map. Add an empty/unmapped Mapping.
+		  mappings.push_back(Mapping());
+		
+		}
 
                 // Mark that the next iteration will be an extension (if we had
                 // any results this iteration; if not it will just restart)
@@ -807,17 +818,25 @@ std::vector<Mapping> FMDIndex::mapBoth(const std::string& query, int64_t genome,
     
 }
 
-std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
-    const std::string& query, const BitVector* mask, int minContext, int start,
+std::vector<std::pair<int64_t,std::pair<bool,bool>>> FMDIndex::map(const BitVector& ranges,
+    const std::string& query, size_t queryGenome, const BitVector* mask, int minContext, int start,
     int length) const {
     
     // RIGHT-map to a range.
     
     if(length == -1) {
+      
         // Fix up the length parameter if it is -1: that means the whole rest of
         // the string.
         length = query.length() - start;
     }
+    
+    // Get a mask so we can search for uniqueness of positions within the query
+    // genome. And an iterator for it.
+    
+    const BitVector* queryGenomeMask = getGenomeMask(queryGenome);
+    
+    BitVectorIterator* queryGenomeMaskIterator = new BitVectorIterator(*queryGenomeMask);
 
     // Make an iterator for ranges, so we can query it.
     BitVectorIterator rangeIterator(ranges);
@@ -827,15 +846,17 @@ std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
         new BitVectorIterator(*mask);
 
     // We need a vector to return.
-    std::vector<int64_t> mappings;
+    std::vector<std::pair<int64_t,std::pair<bool,bool>>> mappings;
 
     // Keep around the result that we get from the single-character mapping
-    // function. We use it as our working state to trackour FMDPosition and how
+    // function. We use it as our working state to track our FMDPosition and how
     // many characters we've extended by. We use the is_mapped flag to indicate
     // whether the current iteration is an extension or a restart.
     MapAttemptResult location;
     // Make sure the scratch position is empty so we re-start on the first base
     location.position = EMPTY_FMD_POSITION;
+    // Make a bool to track whether certain contexts are unique in the query string
+    bool queryIsUnique;
 
     for(int i = start + length - 1; i >= start; i--) {
         // Go from the end of our selected region to the beginning.
@@ -873,8 +894,11 @@ std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
                 " context to " << location.position << " in range #" << range <<
                 std::endl;
 
+	    queryIsUnique = location.position.getLength(queryGenomeMaskIterator) == 1;
+		
             // Remember that this base mapped to this range
-            mappings.push_back(range);
+	    // First bool: did it map? Second bool: is the query context unique?
+            mappings.push_back(std::pair<range,std::pair<true,queryIsUnique>>);
             
             // We definitely have a non-empty FMDPosition to continue from
 
@@ -910,11 +934,34 @@ std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
                 // again. If it was multimapped before, it had as much left
                 // context as it could take without running out of string or
                 // getting no results.
-
-                // It didn't map. Say it corresponds to no range.
-                mappings.push_back(-1);
-
-                // Mark that the next iteration will be an extension (if we had
+		
+		if(location.is_multimap && location.characters >= minContext && range != -1) {
+		    
+		    // Need to check if it's unique. Checking in this way works if we assume a
+		    // linear query genome. This will always be the case with our greedy
+		    // merging scheme
+		    queryIsUnique = location.position.getLength(queryGenomeMaskIterator) == 1;
+		    
+		    if(queryIsUnique = true) {
+			// It multimapped, but will successfully map in the other direction.
+			// We need to flag this and pass it up to the parent merging scheme
+			// where this position can be handled
+			mappings.push_back(std::pair<range,std::pair<false,true>>);
+		    
+		    } else {
+			// It multimapped, but mapping will fail in both directions so for
+			// our purposes it didn't map in any relevant sense
+			mappings.push_back(std::pair<-1,std::pair<false,false>>);
+		      
+		    }
+		    
+		} else {
+		    // It didn't map. Add an empty/unmapped Mapping.
+		    mappings.push_back(std::pair<-1,std::pair<false,false>>);
+		
+		}
+		
+		// Mark that the next iteration will be an extension (if we had
                 // any results this iteration; if not it will just restart)
                 location.is_mapped = true;
 
@@ -938,12 +985,12 @@ std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
     
 }
 
-std::vector<int64_t> FMDIndex::map(const BitVector& ranges, 
-    const std::string& query, int64_t genome, int minContext, int start,
+std::vector<std::pair<int64_t,std::pair<bool,bool>>> FMDIndex::map(const BitVector& ranges, 
+    const std::string& query, size_t queryGenome, int64_t genome, int minContext, int start,
     int length) const {
     
     // Get the appropriate mask, or NULL if given the special all-genomes value.
-    return map(ranges, query, genome == -1 ? NULL : genomeMasks[genome], 
+    return map(ranges, query, queryGenome, genome == -1 ? NULL : genomeMasks[genome], 
         minContext, start, length);    
 }
 
@@ -973,6 +1020,10 @@ MapAttemptResult FMDIndex::mapPosition(const std::string& pattern,
     result.is_mapped = false;
     result.position = this->getCharPosition(pattern[index]);
     result.characters = 1;
+    
+    //To pass multimap flag
+    result.is_multimap = false;    
+    
     if(result.position.isEmpty(mask)) {
         // This character isn't even in it. Just return the result with an empty
         // FMDPosition; the next character we want to map is going to have to
@@ -1034,6 +1085,16 @@ MapAttemptResult FMDIndex::mapPosition(const std::string& pattern,
 
     // If we get here, we ran out of upstream context and still map to multiple
     // places. Just give our multi-mapping FMDPosition and unmapped result.
+
+    // We want to flag that we've got a multimap. After this there's two
+    // things we could do: either we could pass only the flag back to the
+    // parent level of mapping, and recover the multimapped positions from
+    // the mapAttemptResult.position, or we could pass an unordered set of
+    // these positions up right now. Possible advantage to the first
+    // approach is that we need not pass data if the parent-level check
+    // for uniqueness of multimapping query fails
+    result.is_multimap = true;
+    
     return result;
 }
 
@@ -1054,6 +1115,10 @@ MapAttemptResult FMDIndex::mapPosition(BitVectorIterator& ranges,
     result.is_mapped = false;
     result.position = this->getCharPosition(pattern[index]);
     result.characters = 1;
+    
+    //Multimap flag
+    result.is_multimap = false;    
+    
     if(result.position.isEmpty(mask)) {
         // This character isn't even in it. Just return the result with an empty
         // FMDPosition; the next character we want to map is going to have to
@@ -1100,6 +1165,16 @@ MapAttemptResult FMDIndex::mapPosition(BitVectorIterator& ranges,
     // If we get here, we ran out of downstream context and still map to
     // multiple ranges. Just give our multi-mapping FMDPosition and unmapped
     // result.
+    
+    // We want to flag that we've got a multimap. After this there's two
+    // things we could do: either we could pass only the flag back to the
+    // parent level of mapping, and recover the multimapped positions from
+    // the mapAttemptResult.position, or we could pass an unordered set of
+    // these positions up right now. Possible advantage to the first
+    // approach is that we need not pass data if the parent-level check
+    // for uniqueness of multimapping query fails
+    result.is_multimap = true;
+    
     return result;
 
 

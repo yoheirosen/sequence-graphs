@@ -8,6 +8,6 @@
 /**
  * Type to represent a merge between two bases in a reference structure.
  */
-typedef std::pair<TextPosition, TextPosition> Merge;
+typedef std::pair<std::pair<TextPosition, TextPosition>,bool> Merge;
 
 #endif

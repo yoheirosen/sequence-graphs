@@ -767,7 +767,7 @@ writeAlignmentFasta(
  * will be able to break up ranges.
  *
  * Returns a BitVector marking each such range with a 1 at the start, and a
- * vector of canonicalized positions. Each anonicalized position is a contig
+ * vector of canonicalized positions. Each canonicalized position is a contig
  * number, a base number, and a face flag.
  *
  * All BWT positions must be represented in the pinch set.

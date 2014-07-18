@@ -810,7 +810,7 @@ std::vector<Mapping> FMDIndex::mapBoth(const std::string& query, int64_t genome,
     
 }
 
-std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
+std::vector<std::pair<int64_t,size_t>> FMDIndex::map(const BitVector& ranges,
     const std::string& query, const BitVector* mask, int minContext, int start,
     int length) const {
     
@@ -833,7 +833,7 @@ std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
         new BitVectorIterator(*mask);
 
     // We need a vector to return.
-    std::vector<int64_t> mappings;
+    std::vector<std::pair<int64_t,size_t>> mappings;
 
     // Keep around the result that we get from the single-character mapping
     // function. We use it as our working state to trackour FMDPosition and how
@@ -880,7 +880,8 @@ std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
                 std::endl;
 
             // Remember that this base mapped to this range
-            mappings.push_back(range);
+            mappings.push_back(std::pair<int64_t,size_t>(range,location.characters - 1));
+	    
             
             // We definitely have a non-empty FMDPosition to continue from
 
@@ -918,7 +919,7 @@ std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
                 // getting no results.
 
                 // It didn't map. Say it corresponds to no range.
-                mappings.push_back(-1);
+                mappings.push_back(std::pair<int64_t,size_t>(-1,0));
 
                 // Mark that the next iteration will be an extension (if we had
                 // any results this iteration; if not it will just restart)
@@ -944,7 +945,7 @@ std::vector<int64_t> FMDIndex::map(const BitVector& ranges,
     
 }
 
-std::vector<int64_t> FMDIndex::map(const BitVector& ranges, 
+std::vector<std::pair<int64_t,size_t>> FMDIndex::map(const BitVector& ranges, 
     const std::string& query, int64_t genome, int minContext, int start,
     int length) const {
     
@@ -1089,12 +1090,10 @@ MapAttemptResult FMDIndex::mapPosition(BitVectorIterator& ranges,
 
         if(next_position.range(ranges, mask) != -1) {
             // We have successfully mapped to exactly one range. Update our
-            // result to reflect the additional extension and our success, and
-            // return it.
-            result.position = next_position;
-            result.characters++;
+            // result to reflect the additional extension and our success, 
+            // but continue the search
+	  
             result.is_mapped = true;
-            return result;      
         }
 
         // Otherwise, we still map to a plurality of ranges. Record the
@@ -1103,9 +1102,6 @@ MapAttemptResult FMDIndex::mapPosition(BitVectorIterator& ranges,
         result.characters++;
     }
 
-    // If we get here, we ran out of downstream context and still map to
-    // multiple ranges. Just give our multi-mapping FMDPosition and unmapped
-    // result.
     return result;
 
 

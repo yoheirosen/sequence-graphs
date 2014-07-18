@@ -145,11 +145,11 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
         includedPositions.getSize()) << " bottom-level positions" << std::endl;
     
     // Map it on the right
-    std::vector<int64_t> rightMappings = index.map(rangeVector, contig, 
+    std::vector<std::pair<int64_t,size_t>> rightMappings = index.map(rangeVector, contig, 
         &includedPositions, minContext);
     
     // Map it on the left
-    std::vector<int64_t> leftMappings = index.map(rangeVector, 
+    std::vector<std::pair<int64_t,size_t>> leftMappings = index.map(rangeVector, 
         reverseComplement(contig), &includedPositions, minContext);
     
     // Flip the left mappings back into the original order. They should stay as
@@ -163,38 +163,40 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
     for(size_t i = 0; i < leftMappings.size(); i++) {
 	// Scan for the first left-mapped position in this contig
       
-	if(leftMappings[i] != -1) {
-	    if(rightMappings[i] == -1) {
+	if(leftMappings[i].first != -1) {
+	    if(rightMappings[i].first == -1) {
 		leftSentinel = i;
 		break;
 		
-	    } else if(rightMappings[i] != -1 &&
-	      rangeBases[leftMappings[i]].first == rangeBases[rightMappings[i]].first &&
-	      rangeBases[leftMappings[i]].second != rangeBases[rightMappings[i]].second) {
+	    } else if(rightMappings[i].first != -1 &&
+	      rangeBases[leftMappings[i].first].first == rangeBases[rightMappings[i].first].first &&
+	      rangeBases[leftMappings[i].first].second != rangeBases[rightMappings[i].first].second) {
 		leftSentinel = i;
+		break;
+		
+	    }
+	}
+    }
+            
+    for(size_t i = rightMappings.size() - 1; i > 0; i--) {
+	// Scan for the last right-mapped position in this contig
+	      
+	if(rightMappings[i].first != -1) {
+	    if(leftMappings[i].first == -1) {
+		rightSentinel = i;
+		break;
+		
+	    } else if(leftMappings[i].first != -1 &&
+	      rangeBases[leftMappings[i].first].first == rangeBases[rightMappings[i].first].first &&
+	      rangeBases[leftMappings[i].first].second != rangeBases[rightMappings[i].first].second) {
+		rightSentinel = i;
 		break;
 		
 	    }
 	}
     }
     
-    for(size_t i = rightMappings.size() - 1; i > -1; i--) {
-	// Scan for the last right-mapped position in this contig
-      
-	if(rightMappings[i] != -1) {
-	    if(leftMappings[i] == -1) {
-		leftSentinel = i;
-		break;
-		
-	    } else if(leftMappings[i] != -1 &&
-	      rangeBases[leftMappings[i]].first == rangeBases[rightMappings[i]].first &&
-	      rangeBases[leftMappings[i]].second != rangeBases[rightMappings[i]].second) {
-		leftSentinel = i;
-		break;
-		
-	    }
-	}
-    }
+    Log::info() << "Left sentinel is " << leftSentinel << ", right sentinel is " << rightSentinel << std::endl;
     
     // Now identify and merged mapped bases from the individual left and
     // right mappings
@@ -202,13 +204,13 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
     for(size_t i = 0; i < leftMappings.size(); i++) {
         // For each position, look at the mappings.
         
-        if(leftMappings[i] != -1) {
+        if(leftMappings[i].first != -1) {
             // We have a left mapping. Grab its base.
-            auto leftBase = rangeBases[leftMappings[i]];
+            auto leftBase = rangeBases[leftMappings[i].first];
             
-            if(rightMappings[i] != -1) {
+            if(rightMappings[i].first != -1) {
                 // We have a right mapping. Grab its base too.
-                auto rightBase = rangeBases[rightMappings[i]];
+                auto rightBase = rangeBases[rightMappings[i].first];
                 
                 // Compare the position (contig, base) pairs (first) and the
                 // orientation flags (second)
@@ -251,11 +253,11 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
                 mappedBases++;
             }
             
-        } else if(rightMappings[i] != -1) {
+        } else if(rightMappings[i].first != -1) {
             // Right mapped and left didn't.
             
             // We have a right mapping. Grab its base too.
-            auto rightBase = rangeBases[rightMappings[i]];
+            auto rightBase = rangeBases[rightMappings[i].first];
             
             // Merge with the same contig and base. Leave the orientation alone
             // (since it's backwards to start with).
@@ -286,31 +288,33 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
     size_t maxRContext = 0;
     size_t maxLContext = 0;
     
+    Log::info() << "Checking " << creditCandidates.size() << " unmapped positions \"in the middle\"" << std::endl;
+    
     for(size_t i; i < rightMappings.size(); i++) {
-	if(rightContext[i] > maxRContext) {
-	    maxRContext = rightContext[i];
+	if(rightMappings[i].second > maxRContext) {
+	    maxRContext = rightMappings[i].second;
 	}
-	if(leftContext[i] > maxLContext) {
-	    maxLContext = leftContext[i];
+	if(leftMappings[i].second > maxLContext) {
+	    maxLContext = leftMappings[i].second;
 	}
     }
         
-    for(size_t i = 1; i < creditCandidates.size(); i++) {
+    for(size_t i = 0; i < creditCandidates.size(); i++) {
 	firstR = false;
 	firstL = false;
 	contextMappedR = true;
 	contextMappedL = true;	
 	for(size_t j = creditCandidates[i] - 1; j + 1 > 0 && creditCandidates[i] - j < maxRContext; j--) {
 	    // Search leftward from each position until you find a position
-	    // whose context includes creditCandidate[i]
+	    // whose context includes creditCandidates[i]
 	  
 	    if(!firstR) {
-		if(rightContext[j] > creditCandidates[i] - j) {
-		    firstBaseR = rangeBases[rightMappings[j]];
+		if(rightMappings[j].second > creditCandidates[i] - j) {
+		    firstBaseR = rangeBases[rightMappings[j].first];
 		    firstR = true;
 		}
 		
-	    // Then continue to search left. If a position has creditCandidate[i]
+	    // Then continue to search left. If a position has creditCandidates[i]
 	    // in its right context we want to see if subsequent positions map to
 	    // the same place
 	    
@@ -320,27 +324,31 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
 	    // to map to the same place as before
 		
 	    } else {
-		if(rangeBases[rightMappings[j]].first.second != firstBaseR.first.second ||
-			rangeBases[rightMappings[j]].second != firstBaseR.second ||
-			rangeBases[rightMappings[j]].first != firstBaseR.first.first + creditCandidates[i] - j) {
-		    contextMappedR = false;
-		    break;
+		if(rightMappings[j].second > creditCandidates[i] - j) {
+		    if(rangeBases[rightMappings[j].first].first.second != firstBaseR.first.second ||
+			    rangeBases[rightMappings[j].first].second != firstBaseR.second ||
+			    rangeBases[rightMappings[j].first].first.first != firstBaseR.first.first + creditCandidates[i] - j) {
+			contextMappedR = false;
+			break;
+		    }
 		}
 	    }
 	}
 	
 	for(size_t j = creditCandidates[i] + 1; j < creditCandidates.size() && j - creditCandidates[i] < maxLContext; j++) {
 	    if(!firstL) {
-		if(leftContext[j] > j - creditCandidates[i]) {
-		    firstBaseL = rangeBases[rightMappings[j]];
+		if(leftMappings[j].second > j - creditCandidates[i]) {
+		    firstBaseL = rangeBases[rightMappings[j].first];
 		    firstL = true;
 		}
 	    } else {
-		if(rangeBases[leftMappings[j]].first.second != firstBaseL.first.second ||
-			rangeBases[leftMappings[j]].second != firstBaseL.second ||
-			rangeBases[leftMappings[j]].first != firstBaseL.first.first + j - creditCandidates[i]) {
-		    contextMappedL = false;
-		    break;
+		if(leftMappings[j].second > j - creditCandidates[i]) {
+		    if(rangeBases[leftMappings[j].first].first.second != firstBaseL.first.second ||
+			    rangeBases[leftMappings[j].first].second != firstBaseL.second ||
+			    rangeBases[leftMappings[j].first].first.first != firstBaseL.first.first + j - creditCandidates[i]) {
+			contextMappedL = false;
+			break;
+		    }
 		}
 	    }
 	}
@@ -352,24 +360,33 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
 	    if(firstL && contextMappedL) {
 		firstBaseL.first.first--;
 		
-		if(firstBaseR.first = firstBaseL.first &&
+		if(firstBaseR.first == firstBaseL.first &&
 			  firstBaseR.second != firstBaseL.second) {
 		  generateMerge(queryContig, creditCandidates[i], firstBaseR.first.first, 
                         firstBaseR.first.second, firstBaseR.second);
+		  Log::info() << "Credit Merged " << creditCandidates[i] << std::endl;
+		  mappedBases++;
+		  unmappedBases--;
 		  
 		}
 	    } else {
 		  generateMerge(queryContig, creditCandidates[i], firstBaseR.first.first, 
                         firstBaseR.first.second, firstBaseR.second);
-	      
+		  Log::info() << "Credit Merged " << creditCandidates[i] << std::endl;
+		  mappedBases++;
+		  unmappedBases--;
+		  
 	    }
 	} else if (firstL && contextMappedL) {
 	    firstBaseL.first.first--;
 	    generateMerge(queryContig, creditCandidates[i], firstBaseL.first.first, 
                         firstBaseL.first.second, !firstBaseL.second);
+	    mappedBases++;
+	    unmappedBases--;
+	    Log::info() << "Credit Merged " << creditCandidates[i] << std::endl;
 	  
 	}
-	
+		
     }
     
     // Close the queue to say we're done.

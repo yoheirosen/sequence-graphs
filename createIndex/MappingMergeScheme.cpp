@@ -10,10 +10,10 @@
 MappingMergeScheme::MappingMergeScheme(const FMDIndex& index, 
     const BitVector& rangeVector, 
     const std::vector<std::pair<std::pair<size_t, size_t>, bool> >& rangeBases, 
-    const BitVector& includedPositions, size_t genome, size_t minContext) : 
+    const BitVector& includedPositions, size_t genome, size_t minContext, bool credit) : 
     MergeScheme(index), threads(), queue(NULL), rangeVector(rangeVector), 
     rangeBases(rangeBases), includedPositions(includedPositions), 
-    genome(genome), minContext(minContext) {
+    genome(genome), minContext(minContext), credit(credit) {
     
     // Nothing to do
     
@@ -135,6 +135,7 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
     // How many bases have we mapped or not mapped
     size_t mappedBases = 0;
     size_t unmappedBases = 0;
+    size_t creditBases = 0;
     
     // Grab the contig as a string
     std::string contig = index.displayContig(queryContig);
@@ -156,7 +157,7 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
     // other-side ranges.
     std::reverse(leftMappings.begin(), leftMappings.end());
     
-    size_t leftSentinel;
+     size_t leftSentinel;
     size_t rightSentinel;
     std::vector<size_t> creditCandidates;
     
@@ -167,34 +168,35 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
 	    if(rightMappings[i].first == -1) {
 		leftSentinel = i;
 		break;
-		
+
 	    } else if(rightMappings[i].first != -1 &&
-	      rangeBases[leftMappings[i].first].first == rangeBases[rightMappings[i].first].first &&
-	      rangeBases[leftMappings[i].first].second != rangeBases[rightMappings[i].first].second) {
+		rangeBases[leftMappings[i].first].first == rangeBases[rightMappings[i].first].first &&
+		rangeBases[leftMappings[i].first].second != rangeBases[rightMappings[i].first].second) {
 		leftSentinel = i;
 		break;
-		
+
 	    }
 	}
     }
             
     for(size_t i = rightMappings.size() - 1; i > 0; i--) {
 	// Scan for the last right-mapped position in this contig
-	      
+
 	if(rightMappings[i].first != -1) {
 	    if(leftMappings[i].first == -1) {
 		rightSentinel = i;
 		break;
-		
+
 	    } else if(leftMappings[i].first != -1 &&
-	      rangeBases[leftMappings[i].first].first == rangeBases[rightMappings[i].first].first &&
-	      rangeBases[leftMappings[i].first].second != rangeBases[rightMappings[i].first].second) {
+		rangeBases[leftMappings[i].first].first == rangeBases[rightMappings[i].first].first &&
+		rangeBases[leftMappings[i].first].second != rangeBases[rightMappings[i].first].second) {
 		rightSentinel = i;
 		break;
-		
+
 	    }
 	}
     }
+
     
     Log::info() << "Left sentinel is " << leftSentinel << ", right sentinel is " << rightSentinel << std::endl;
     
@@ -203,7 +205,7 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
       
     for(size_t i = 0; i < leftMappings.size(); i++) {
         // For each position, look at the mappings.
-        
+       
         if(leftMappings[i].first != -1) {
             // We have a left mapping. Grab its base.
             auto leftBase = rangeBases[leftMappings[i].first];
@@ -274,9 +276,10 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
 	    }
         }   
     }
-    
+        
+    if(credit) {
+      
     // Iterate across all possible positions for mapping on credit
-    // TODO: use maximum context lengths to limit search
     
     bool firstR;
     bool contextMappedR;
@@ -367,6 +370,7 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
 		  Log::info() << "Credit Merged " << creditCandidates[i] << std::endl;
 		  mappedBases++;
 		  unmappedBases--;
+		  creditBases++;
 		  
 		}
 	    } else {
@@ -375,6 +379,7 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
 		  Log::info() << "Credit Merged " << creditCandidates[i] << std::endl;
 		  mappedBases++;
 		  unmappedBases--;
+		  creditBases++;
 		  
 	    }
 	} else if (firstL && contextMappedL) {
@@ -383,10 +388,12 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
                         firstBaseL.first.second, !firstBaseL.second);
 	    mappedBases++;
 	    unmappedBases--;
+	    creditBases++;
 	    Log::info() << "Credit Merged " << creditCandidates[i] << std::endl;
 	  
 	}
 		
+    }
     }
     
     // Close the queue to say we're done.
@@ -396,6 +403,10 @@ void MappingMergeScheme::generateMerges(size_t queryContig) const {
     // Report that we're done.
     Log::info() << threadName << " finished (" << mappedBases << "|" << 
         unmappedBases << ")" << std::endl;
+	
+    if(credit) {
+	Log::info() << mappedBases - creditBases << " anchor mapped; " << creditBases << " extension mapped" <<  std::endl;
+	}
 }
 
 

@@ -1074,6 +1074,8 @@ MapAttemptResult FMDIndex::mapPosition(BitVectorIterator& ranges,
     }
 
     Log::trace() << "Starting with " << result.position << std::endl;
+    
+    FMDPosition found_position;
 
     for(index++; index < pattern.size(); index++) {
         // Forwards extend with subsequent characters.
@@ -1092,8 +1094,8 @@ MapAttemptResult FMDIndex::mapPosition(BitVectorIterator& ranges,
             // We have successfully mapped to exactly one range. Update our
             // result to reflect the additional extension and our success, 
             // but continue the search
-	  
-            result.is_mapped = true;
+	    result.is_mapped = true;
+	    found_position = result.position;
         }
 
         // Otherwise, we still map to a plurality of ranges. Record the
@@ -1101,7 +1103,11 @@ MapAttemptResult FMDIndex::mapPosition(BitVectorIterator& ranges,
         result.position = next_position;
         result.characters++;
     }
-
+    
+    if(result.is_mapped) {
+	result.position = found_position;
+    }
+    
     return result;
 
 
